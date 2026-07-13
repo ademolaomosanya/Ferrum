@@ -1,6 +1,6 @@
 # Ferrum
 
-Ferrum is a small browser engine written in Rust to make the web platform easier to understand. It is being built in public as an MLH Fellowship project, one inspectable stage at a time: source bytes become a DOM, styles, layout boxes, a display list, and finally pixels.
+Ferrum is a small browser engine written in Rust to make the web platform easier to understand. ,one inspectable stage at a time: source bytes become a DOM, styles, layout boxes, a display list, and finally pixels.
 
 > **Current milestone:** parse an HTML document and inspect its DOM tree from the terminal.
 
