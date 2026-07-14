@@ -62,12 +62,13 @@ The output is a deterministic representation of the parsed tree:
 - JavaScript-driven text and background updates before rendering
 - A native cross-platform graphical framebuffer window
 - Mouse hit testing for ID-bearing elements
-- JavaScript `click` events followed by style, layout, and paint
+- Persistent JavaScript state and `addEventListener("click", handler)`
+- Targeted click dispatch, ancestor bubbling, and repainting
 - A CLI, unit and integration tests, formatting, and strict linting
 
 Ferrum's parsers are intentionally learning-sized subsets, not yet conforming implementations of the full HTML and CSS standards. HTML error recovery, selector combinators, at-rules, functions, and most CSS units remain future work. Calling those boundaries out clearly lets the project grow through measurable milestones instead of hiding complexity.
 
-The JavaScript runtime executes modern ECMAScript, but Ferrum's DOM bridge is intentionally small: scripts can currently read or update `document.title`, select any element with an ID, replace its `textContent`, set its background, and respond to the current global `click` event. It does not yet implement `addEventListener`, persistent DOM state between events, most browser Web APIs, networking, or node creation.
+The JavaScript runtime executes modern ECMAScript, but Ferrum's DOM bridge is intentionally small: scripts can read or update `document.title`, select any element with an ID, replace its `textContent`, set its background, and register click handlers with `addEventListener`. One Boa context remains alive for the window session, so variables, closures, listeners, and DOM-facing state persist across clicks. Clicks dispatch only along the ID-bearing target-to-root path; `event.target`, `event.currentTarget`, bubbling, and `stopPropagation()` are supported. Ferrum does not yet implement listener removal, default actions, most browser Web APIs, networking, or node creation.
 
 The `window` command resolves the first `<link rel="stylesheet">` and `<script src>` relative to the HTML file. Click a colored area in the included sample to see JavaScript change the page and window title. For debugging, the explicit form is also available: `ferrum window page.html page.css page.js`.
 
@@ -97,6 +98,7 @@ CI runs the same checks and renders the example page as an end-to-end smoke test
 - [x] **Milestone 6 — Browser shell:** load a local page and display the rendered result
 - [x] **Milestone 7 — Native + JS:** execute a page script and display pixels in a graphical window
 - [x] **Milestone 8 — Interaction:** hit-test mouse clicks, dispatch them to JavaScript, and repaint
+- [x] **Milestone 9 — Events:** persist the page runtime and bubble registered click listeners
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for component boundaries and [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow.
 

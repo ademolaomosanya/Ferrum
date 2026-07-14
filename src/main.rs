@@ -152,22 +152,19 @@ fn show_scripted_page(
     css_source: &str,
     script_source: &str,
 ) -> Result<(), String> {
-    let mut page = build_scripted_page(html_source, css_source, script_source)?;
+    let mut session =
+        ferrum::browser::BrowserSession::new(html_source, css_source, script_source, 800, 600)
+            .map_err(|error| error.to_string())?;
+    let mut page = session.render().map_err(|error| error.to_string())?;
     let initial_canvas = page.canvas.clone();
     let initial_title = format!("Ferrum — {}", page.title);
     ferrum::window::show_interactive(&initial_title, &initial_canvas, move |x, y| {
         let Some(clicked_id) = page.hit_test(x, y).map(str::to_owned) else {
             return Ok(None);
         };
-        page = ferrum::browser::render_with_event(
-            html_source,
-            css_source,
-            script_source,
-            800,
-            600,
-            Some(&clicked_id),
-        )
-        .map_err(|error| error.to_string())?;
+        page = session
+            .click(&clicked_id)
+            .map_err(|error| error.to_string())?;
         Ok(Some(ferrum::window::WindowFrame {
             title: format!("Ferrum — {}", page.title),
             canvas: page.canvas.clone(),

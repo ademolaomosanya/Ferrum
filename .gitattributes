@@ -1,0 +1,4 @@
+# Count Ferrum's browser demo sources in GitHub language statistics.
+examples/*.html linguist-language=HTML linguist-detectable
+examples/*.css linguist-language=CSS linguist-detectable
+examples/*.js linguist-language=JavaScript linguist-detectable
