@@ -19,3 +19,7 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
+      - name: Render example page
+        run: cargo run --quiet -- paint examples/hello.html examples/theme.css ferrum-ci.ppm
+      - name: Verify rendered image
+        run: test -s ferrum-ci.ppm
