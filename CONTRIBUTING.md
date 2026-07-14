@@ -21,6 +21,8 @@ cargo run -- style examples/hello.html examples/theme.css
 cargo run -- layout examples/hello.html examples/theme.css
 cargo run -- paint examples/hello.html examples/theme.css ferrum.ppm
 cargo run -- browse examples/hello.html examples/theme.css
+cargo run -- render examples/hello.html ferrum.ppm
+cargo run -- window examples/hello.html
 ```
 
 Tests in `src/` exercise individual engine stages. Tests in `tests/` launch the compiled CLI and should be updated whenever commands, output contracts, or error behavior change.

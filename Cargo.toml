@@ -2,7 +2,7 @@
 name = "ferrum"
 version = "0.1.0"
 edition = "2024"
-description = "A small browser engine built to explore the web platform"
+description = "A small browser engine built to learn the web platform"
 license = "MIT"
 
 [lib]
@@ -14,4 +14,6 @@ name = "ferrum"
 path = "src/main.rs"
 
 [dependencies]
+boa_engine = "0.21.1"
+minifb = "0.28.0"
 

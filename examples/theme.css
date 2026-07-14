@@ -1,35 +1,78 @@
-/* Ferrum's first stylesheet */
 html {
-  background: #f5f1e8;
-  color: #20242a;
+  background: #eef2f6;
+  color: #172033;
 }
 
 head {
   display: none;
 }
 
+header {
+  background: #203354;
+  color: #ffffff;
+  width: 720px;
+  height: 72px;
+  margin-left: auto;
+  margin-right: auto;
+  margin-bottom: 12px;
+  padding: 18px;
+  border-width: 2px;
+  border-color: #12213b;
+}
+
 main#app {
-  display: block;
-  background: #fffdf8;
+  background: #ffffff;
   width: 720px;
   margin-left: auto;
   margin-right: auto;
-  padding: 24px;
+  padding: 18px;
   border-width: 2px;
-  border-color: #b7410e;
+  border-color: #c3cedd;
+}
+
+.card {
+  background: #f6f8fb;
+  height: 52px;
+  margin-bottom: 8px;
+  padding: 10px;
+  border-width: 1px;
+  border-color: #d4dce8;
+}
+
+.featured {
+  background: #e4edf9;
+  border-color: #5d82b8;
 }
 
 h1 {
-  background: #f0dfc4;
-  height: 48px;
-  margin-bottom: 16px;
+  height: 24px;
+  margin-bottom: 8px;
 }
 
-img {
-  background: #b7410e;
-  height: 160px;
+h2 {
+  color: #203354;
+  height: 18px;
+  margin-bottom: 4px;
 }
 
-.featured, .callout {
-  color: #b7410e;
+p {
+  height: 18px;
+}
+
+#status {
+  background: #f5dfae;
+  height: 18px;
+  margin-top: 4px;
+  padding: 8px;
+  border-width: 1px;
+  border-color: #bf8d24;
+}
+
+footer {
+  color: #526177;
+  width: 720px;
+  height: 18px;
+  margin-left: auto;
+  margin-right: auto;
+  margin-top: 10px;
 }
