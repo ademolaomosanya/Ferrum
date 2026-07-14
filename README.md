@@ -1,6 +1,6 @@
 # Ferrum
 
-Ferrum is a small browser engine written in Rust to make the web platform easier to understand, one inspectable stage at a time: source bytes become a DOM, styles, layout boxes, a display list, and finally pixels.
+Ferrum is a small browser engine written in Rust to make the web platform easier to understand. ,one inspectable stage at a time: source bytes become a DOM, styles, layout boxes, a display list, and finally pixels.
 
 > **Current milestone:** route native mouse clicks through layout hit testing to JavaScript and repaint the page.
 
