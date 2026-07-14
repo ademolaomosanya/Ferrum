@@ -1,13 +1,40 @@
 <!doctype html>
-<!-- Ferrum's first document -->
 <html lang="en">
   <head>
-    <title>Hello, Ferrum!</title>
+    <title>Ferrum Browser</title>
+    <link rel="stylesheet" href="theme.css">
+    <script src="app.js"></script>
   </head>
-  <body>
+  <body id="page">
+    <header id="hero">
+      <h1>Ferrum Browser Engine</h1>
+      <p id="subtitle">A browser pipeline written from scratch in Rust.</p>
+    </header>
+
     <main id="app">
-      <h1>A browser engine begins with a tree.</h1>
-      <img src="ferrum.png" alt="Ferrum logo">
+      <section id="parser-card" class="card">
+        <h2>HTML and CSS</h2>
+        <p>Ferrum parses source files into a DOM and stylesheet model.</p>
+      </section>
+
+      <section id="layout-card" class="card featured">
+        <h2>Style and Layout</h2>
+        <p>Selectors cascade into styled nodes and block geometry.</p>
+      </section>
+
+      <section id="paint-card" class="card">
+        <h2>Paint and Pixels</h2>
+        <p>Display commands are rasterized into the native window.</p>
+      </section>
+
+      <section id="runtime-card" class="card">
+        <h2>JavaScript Runtime</h2>
+        <p id="runtime-status">Waiting for the page script.</p>
+      </section>
+
+      <p id="status">Loading HTML, CSS, and JavaScript...</p>
     </main>
+
+    <footer id="footer">Ferrum is an educational browser engine built in Rust.</footer>
   </body>
 </html>

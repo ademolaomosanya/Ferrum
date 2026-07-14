@@ -70,6 +70,7 @@ pub struct LayoutBox {
     pub dimensions: Dimensions,
     pub box_type: BoxType,
     pub node_name: String,
+    pub element_id: Option<String>,
     pub text: Option<String>,
     pub properties: PropertyMap,
     pub children: Vec<LayoutBox>,
@@ -260,6 +261,7 @@ pub fn layout_tree(root: &StyledNode<'_>, viewport_width: f32, viewport_height: 
         dimensions: Dimensions::default(),
         box_type: BoxType::Anonymous,
         node_name: "#empty".into(),
+        element_id: None,
         text: None,
         properties: PropertyMap::new(),
         children: Vec::new(),
@@ -283,10 +285,14 @@ fn build_layout_tree(styled: &StyledNode<'_>) -> Option<LayoutBox> {
         Display::Block => BoxType::Block,
         Display::Inline => BoxType::Inline,
     };
-    let (node_name, text) = match &styled.node.kind {
-        NodeKind::Document => ("#document".into(), None),
-        NodeKind::Element(element) => (format!("<{}>", element.tag_name), None),
-        NodeKind::Text(value) => ("#text".into(), Some(value.clone())),
+    let (node_name, element_id, text) = match &styled.node.kind {
+        NodeKind::Document => ("#document".into(), None, None),
+        NodeKind::Element(element) => (
+            format!("<{}>", element.tag_name),
+            element.attributes.get("id").cloned(),
+            None,
+        ),
+        NodeKind::Text(value) => ("#text".into(), None, Some(value.clone())),
         NodeKind::Comment(_) => return None,
     };
     let children = styled
@@ -298,6 +304,7 @@ fn build_layout_tree(styled: &StyledNode<'_>) -> Option<LayoutBox> {
         dimensions: Dimensions::default(),
         box_type,
         node_name,
+        element_id,
         text,
         properties: styled.properties.clone(),
         children,

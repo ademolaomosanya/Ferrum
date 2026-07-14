@@ -21,6 +21,8 @@ fn help_describes_the_pipeline_commands() {
     assert!(stdout.contains("educational browser engine"));
     assert!(stdout.contains("ferrum paint"));
     assert!(stdout.contains("ferrum browse"));
+    assert!(stdout.contains("ferrum render"));
+    assert!(stdout.contains("ferrum window"));
 }
 
 #[test]
@@ -76,7 +78,7 @@ fn reports_invalid_html_without_panicking() {
 }
 
 #[test]
-fn paints_a_valid_ppm_from_example_inputs() {
+fn renders_a_scripted_page_from_linked_example_inputs() {
     let output_path = std::env::temp_dir().join(format!(
         "ferrum-cli-test-{}-{}.ppm",
         std::process::id(),
@@ -84,9 +86,8 @@ fn paints_a_valid_ppm_from_example_inputs() {
     ));
     let output = ferrum()
         .args([
-            "paint".into(),
+            "render".into(),
             fixture("hello.html").into_os_string(),
-            fixture("theme.css").into_os_string(),
             output_path.clone().into_os_string(),
         ])
         .output()

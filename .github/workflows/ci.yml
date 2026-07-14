@@ -13,6 +13,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install native window build dependencies
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-cursor0 libwayland-dev
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
@@ -20,6 +22,6 @@ jobs:
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
       - name: Render example page
-        run: cargo run --quiet -- paint examples/hello.html examples/theme.css ferrum-ci.ppm
+        run: cargo run --quiet -- render examples/hello.html ferrum-ci.ppm
       - name: Verify rendered image
         run: test -s ferrum-ci.ppm
