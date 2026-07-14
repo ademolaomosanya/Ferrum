@@ -16,7 +16,14 @@ Run the current demo with:
 
 ```sh
 cargo run -- examples/hello.html
+cargo run -- css examples/theme.css
+cargo run -- style examples/hello.html examples/theme.css
+cargo run -- layout examples/hello.html examples/theme.css
+cargo run -- paint examples/hello.html examples/theme.css ferrum.ppm
+cargo run -- browse examples/hello.html examples/theme.css
 ```
+
+Tests in `src/` exercise individual engine stages. Tests in `tests/` launch the compiled CLI and should be updated whenever commands, output contracts, or error behavior change.
 
 ## Making a change
 
@@ -27,4 +34,3 @@ cargo run -- examples/hello.html
 5. Update the README or architecture notes if the supported behavior changes.
 
 Good first contributions include parser edge-case tests, clearer diagnostics, DOM traversal helpers, and example documents. Larger compatibility work should start with a short design issue so the intended standards behavior is explicit.
-
