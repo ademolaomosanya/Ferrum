@@ -1,9 +1,10 @@
-//! End-to-end page loading for HTML, CSS, and JavaScript sources.
+//! End-to-end page loading and persistent interaction sessions.
 
+use crate::css::Stylesheet;
 use crate::dom::{Node, NodeKind};
 use crate::layout::{LayoutBox, Rect};
 use crate::paint::Canvas;
-use crate::script::{self, ElementState, PageState, ScriptEvent};
+use crate::script::{ElementState, PageState, ScriptRuntime};
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
@@ -46,6 +47,100 @@ impl fmt::Display for BrowserError {
 
 impl Error for BrowserError {}
 
+/// Owns a parsed page and its long-lived JavaScript context.
+pub struct BrowserSession {
+    document: Node,
+    stylesheet: Stylesheet,
+    initial_state: PageState,
+    event_paths: BTreeMap<String, Vec<String>>,
+    runtime: ScriptRuntime,
+    width: u32,
+    height: u32,
+}
+
+impl BrowserSession {
+    pub fn new(
+        html_source: &str,
+        css_source: &str,
+        script_source: &str,
+        width: u32,
+        height: u32,
+    ) -> Result<Self, BrowserError> {
+        let document = crate::html::parse(html_source).map_err(error)?;
+        let stylesheet = crate::css::parse(css_source).map_err(error)?;
+        let mut elements = BTreeMap::new();
+        let mut event_paths = BTreeMap::new();
+        collect_elements_and_paths(&document, &[], &mut elements, &mut event_paths);
+        let initial_state = PageState {
+            title: find_element(&document, "title")
+                .map(text_content)
+                .unwrap_or_else(|| "Ferrum".into()),
+            elements,
+        };
+        let runtime = ScriptRuntime::new(script_source, &initial_state).map_err(error)?;
+        Ok(Self {
+            document,
+            stylesheet,
+            initial_state,
+            event_paths,
+            runtime,
+            width,
+            height,
+        })
+    }
+
+    pub fn render(&mut self) -> Result<RenderedPage, BrowserError> {
+        let outcome = self.runtime.outcome().map_err(error)?;
+        let mut document = self.document.clone();
+        let mut stylesheet = self.stylesheet.clone();
+
+        for (id, updated) in &outcome.page.elements {
+            let Some(original) = self.initial_state.elements.get(id) else {
+                continue;
+            };
+            if updated.text_content != original.text_content
+                && let Some(element) = find_element_by_id_mut(&mut document, id)
+            {
+                element.children = vec![Node::text(&updated.text_content)];
+            }
+            if updated.background != original.background && !updated.background.trim().is_empty() {
+                let script_styles =
+                    crate::css::parse(&format!("#{id} {{ background: {}; }}", updated.background))
+                        .map_err(|parse_error| BrowserError {
+                            message: format!(
+                                "JavaScript produced invalid background CSS: {parse_error}"
+                            ),
+                        })?;
+                stylesheet.rules.extend(script_styles.rules);
+            }
+        }
+
+        let styled = crate::style::style_tree(&document, &stylesheet);
+        let layout = crate::layout::layout_tree(&styled, self.width as f32, self.height as f32);
+        let mut hit_regions = Vec::new();
+        collect_hit_regions(&layout, &mut hit_regions);
+        Ok(RenderedPage {
+            title: outcome.page.title,
+            script_result: outcome.result,
+            canvas: crate::paint::paint(&layout, self.width, self.height),
+            hit_regions,
+        })
+    }
+
+    /// Dispatches a click to the target and its ID-bearing ancestors, then repaints.
+    pub fn click(&mut self, target_id: &str) -> Result<RenderedPage, BrowserError> {
+        let path = self
+            .event_paths
+            .get(target_id)
+            .cloned()
+            .unwrap_or_else(|| vec![target_id.to_owned()]);
+        self.runtime
+            .dispatch_click(target_id, &path)
+            .map_err(error)?;
+        self.render()
+    }
+}
+
 pub fn render_with_script(
     html_source: &str,
     css_source: &str,
@@ -53,65 +148,34 @@ pub fn render_with_script(
     width: u32,
     height: u32,
 ) -> Result<RenderedPage, BrowserError> {
-    render_with_event(html_source, css_source, script_source, width, height, None)
+    BrowserSession::new(html_source, css_source, script_source, width, height)?.render()
 }
 
-pub fn render_with_event(
-    html_source: &str,
-    css_source: &str,
-    script_source: &str,
-    width: u32,
-    height: u32,
-    clicked_id: Option<&str>,
-) -> Result<RenderedPage, BrowserError> {
-    let mut document = crate::html::parse(html_source).map_err(error)?;
-    let mut stylesheet = crate::css::parse(css_source).map_err(error)?;
-    let mut elements = BTreeMap::new();
-    collect_id_elements(&document, &mut elements);
-    let initial = PageState {
-        title: find_element(&document, "title")
-            .map(text_content)
-            .unwrap_or_else(|| "Ferrum".into()),
-        elements,
-    };
-    let event = clicked_id.map(|target_id| ScriptEvent {
-        event_type: "click".into(),
-        target_id: target_id.into(),
-    });
-    let outcome = script::execute_with_event(script_source, initial.clone(), event.as_ref())
-        .map_err(error)?;
-
-    for (id, updated) in &outcome.page.elements {
-        let Some(original) = initial.elements.get(id) else {
-            continue;
-        };
-        if updated.text_content != original.text_content
-            && let Some(element) = find_element_by_id_mut(&mut document, id)
-        {
-            element.children = vec![Node::text(&updated.text_content)];
-        }
-        if updated.background != original.background && !updated.background.trim().is_empty() {
-            let script_styles =
-                crate::css::parse(&format!("#{id} {{ background: {}; }}", updated.background))
-                    .map_err(|parse_error| BrowserError {
-                        message: format!(
-                            "JavaScript produced invalid background CSS: {parse_error}"
-                        ),
-                    })?;
-            stylesheet.rules.extend(script_styles.rules);
-        }
+fn collect_elements_and_paths(
+    node: &Node,
+    ancestors: &[String],
+    elements: &mut BTreeMap<String, ElementState>,
+    paths: &mut BTreeMap<String, Vec<String>>,
+) {
+    let mut child_ancestors = ancestors.to_vec();
+    if let NodeKind::Element(element) = &node.kind
+        && let Some(id) = element.attributes.get("id")
+    {
+        elements.insert(
+            id.clone(),
+            ElementState {
+                text_content: text_content(node),
+                background: String::new(),
+            },
+        );
+        let mut path = vec![id.clone()];
+        path.extend(ancestors.iter().rev().cloned());
+        paths.insert(id.clone(), path);
+        child_ancestors.push(id.clone());
     }
-
-    let styled = crate::style::style_tree(&document, &stylesheet);
-    let layout = crate::layout::layout_tree(&styled, width as f32, height as f32);
-    let mut hit_regions = Vec::new();
-    collect_hit_regions(&layout, &mut hit_regions);
-    Ok(RenderedPage {
-        title: outcome.page.title,
-        script_result: outcome.result,
-        canvas: crate::paint::paint(&layout, width, height),
-        hit_regions,
-    })
+    for child in &node.children {
+        collect_elements_and_paths(child, &child_ancestors, elements, paths);
+    }
 }
 
 fn collect_hit_regions(layout: &LayoutBox, regions: &mut Vec<HitRegion>) {
@@ -155,23 +219,6 @@ fn find_element_by_id_mut<'a>(node: &'a mut Node, id: &str) -> Option<&'a mut No
         .find_map(|child| find_element_by_id_mut(child, id))
 }
 
-fn collect_id_elements(node: &Node, elements: &mut BTreeMap<String, ElementState>) {
-    if let NodeKind::Element(element) = &node.kind
-        && let Some(id) = element.attributes.get("id")
-    {
-        elements.insert(
-            id.clone(),
-            ElementState {
-                text_content: text_content(node),
-                background: String::new(),
-            },
-        );
-    }
-    for child in &node.children {
-        collect_id_elements(child, elements);
-    }
-}
-
 fn text_content(node: &Node) -> String {
     match &node.kind {
         NodeKind::Text(value) => value.clone(),
@@ -212,17 +259,27 @@ mod tests {
 
     #[test]
     fn invalid_script_stops_page_loading() {
-        let error = render_with_script("<main id=\"app\"></main>", "", "const = ;", 10, 10)
-            .expect_err("invalid script should fail");
+        let error = BrowserSession::new("<main id=\"app\"></main>", "", "const = ;", 10, 10)
+            .err()
+            .expect("invalid script should fail");
         assert!(error.message.contains("JavaScript error"));
     }
 
     #[test]
-    fn hit_testing_and_click_events_flow_back_to_javascript() {
+    fn hit_testing_dispatches_and_preserves_click_state() {
         let html = "<main id=\"app\"><p id=\"status\">Waiting</p></main>";
         let css = "#app { width: 100px; height: 60px } #status { height: 20px }";
-        let script = "if (event && event.target.id === 'status') { event.target.style.background = '#ff0000'; }";
-        let initial = render_with_script(html, css, script, 120, 80).expect("page should render");
+        let script = r#"
+            let clicks = 0;
+            const status = document.getElementById('status');
+            status.addEventListener('click', event => {
+                status.textContent = String(++clicks);
+                event.target.style.background = '#ff0000';
+            });
+        "#;
+        let mut session =
+            BrowserSession::new(html, css, script, 120, 80).expect("session should start");
+        let initial = session.render().expect("page should render");
         let status = initial
             .hit_regions
             .iter()
@@ -230,9 +287,14 @@ mod tests {
             .expect("status should have a hit region");
         let clicked = initial
             .hit_test(status.rect.x + 1.0, status.rect.y + 1.0)
-            .expect("status should be hit");
-        let updated = render_with_event(html, css, script, 120, 80, Some(clicked))
-            .expect("click should rerender");
+            .expect("status should be hit")
+            .to_owned();
+        session
+            .click(&clicked)
+            .expect("first click should rerender");
+        let updated = session
+            .click(&clicked)
+            .expect("second click should rerender");
 
         assert!(updated.canvas.pixels.contains(&Color {
             red: 255,
@@ -240,5 +302,30 @@ mod tests {
             blue: 0,
             alpha: 255,
         }));
+        assert_eq!(
+            session.runtime.outcome().unwrap().page.elements["status"].text_content,
+            "2"
+        );
+    }
+
+    #[test]
+    fn click_bubbles_through_dom_ancestors_only() {
+        let html =
+            "<main id=\"app\"><p id=\"status\">Waiting</p><aside id=\"other\"></aside></main>";
+        let script = r#"
+            const status = document.getElementById('status');
+            const app = document.getElementById('app');
+            const other = document.getElementById('other');
+            status.addEventListener('click', () => status.textContent = 'target');
+            app.addEventListener('click', () => status.textContent += '>parent');
+            other.addEventListener('click', () => status.textContent = 'wrong');
+        "#;
+        let mut session = BrowserSession::new(html, "", script, 100, 100).unwrap();
+        session.click("status").unwrap();
+
+        assert_eq!(
+            session.runtime.outcome().unwrap().page.elements["status"].text_content,
+            "target>parent"
+        );
     }
 }

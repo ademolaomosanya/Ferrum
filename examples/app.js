@@ -14,11 +14,28 @@ const status = document.querySelector("#status");
 status.textContent = technologies.join(" + ") + " loaded. Click any colored panel.";
 status.style.background = "#cce8d2";
 
-if (event && event.type === "click" && event.target) {
-  event.target.style.background = "#f7c873";
-  status.textContent = "Clicked #" + event.target.id + ". JavaScript handled the event.";
-  status.style.background = "#f7c873";
-  document.title = "Ferrum — clicked #" + event.target.id;
+const app = document.getElementById("app");
+const clickableIds = [
+  "parser-card",
+  "layout-card",
+  "paint-card",
+  "runtime-card",
+  "status",
+];
+let clickCount = 0;
+
+for (const id of clickableIds) {
+  document.getElementById(id).addEventListener("click", event => {
+    event.currentTarget.style.background = "#f7c873";
+  });
 }
+
+app.addEventListener("click", event => {
+  clickCount += 1;
+  status.textContent = "Click " + clickCount + " reached #" + event.target.id +
+    " and bubbled to #" + event.currentTarget.id + ".";
+  status.style.background = "#cce8d2";
+  document.title = "Ferrum — " + clickCount + " interactive clicks";
+});
 
 "Ferrum page ready";

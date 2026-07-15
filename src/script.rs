@@ -1,7 +1,7 @@
-//! A small JavaScript host bridge for Ferrum pages.
+//! A small persistent JavaScript host bridge for Ferrum pages.
 //!
 //! This is intentionally not a Web IDL or full DOM implementation. It exposes
-//! the first useful scripting surface while keeping the boundary explicit.
+//! an inspectable subset with persistent element state and click listeners.
 
 use boa_engine::{Context, Source};
 use std::collections::BTreeMap;
@@ -27,12 +27,6 @@ pub struct ScriptOutcome {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ScriptEvent {
-    pub event_type: String,
-    pub target_id: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScriptError {
     pub message: String,
 }
@@ -45,100 +39,169 @@ impl fmt::Display for ScriptError {
 
 impl Error for ScriptError {}
 
-pub fn execute(source: &str, initial: PageState) -> Result<ScriptOutcome, ScriptError> {
-    execute_with_event(source, initial, None)
+/// A page-scoped JavaScript context. Registered handlers and closure state live
+/// until this runtime is dropped.
+pub struct ScriptRuntime {
+    context: Context,
+    element_ids: Vec<String>,
+    initial_result: String,
 }
 
-pub fn execute_with_event(
-    source: &str,
-    initial: PageState,
-    event: Option<&ScriptEvent>,
-) -> Result<ScriptOutcome, ScriptError> {
-    let elements = initial
-        .elements
-        .iter()
-        .map(|(id, element)| {
-            format!(
-                "{}: {{ id: {}, textContent: {}, style: {{ background: {} }} }}",
-                js_string(id),
-                js_string(id),
-                js_string(&element.text_content),
-                js_string(&element.background),
-            )
-        })
-        .collect::<Vec<_>>()
-        .join(",");
-    let event = event.map_or_else(
-        || "null".to_owned(),
-        |event| {
-            format!(
-                "{{ type: {}, target: __ferrumElements[{}] || null }}",
-                js_string(&event.event_type),
-                js_string(&event.target_id),
-            )
-        },
-    );
-    let prelude = format!(
-        r##"
-        const __ferrumElements = {{ {} }};
-        globalThis.document = {{
-            title: {},
-            readyState: "complete",
-            __elements: __ferrumElements,
-            querySelector(selector) {{
-                return typeof selector === "string" && selector.startsWith("#")
-                    ? this.__elements[selector.slice(1)] || null
-                    : null;
-            }},
-            getElementById(id) {{
-                return this.__elements[String(id)] || null;
+impl ScriptRuntime {
+    pub fn new(source: &str, initial: &PageState) -> Result<Self, ScriptError> {
+        let elements = initial
+            .elements
+            .iter()
+            .map(|(id, element)| {
+                format!(
+                    "{}: __ferrumCreateElement({}, {}, {})",
+                    js_string(id),
+                    js_string(id),
+                    js_string(&element.text_content),
+                    js_string(&element.background),
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(",");
+        let prelude = format!(
+            r##"
+            function __ferrumCreateElement(id, textContent, background) {{
+                return {{
+                    id,
+                    textContent,
+                    style: {{ background }},
+                    __listeners: Object.create(null),
+                    addEventListener(type, handler) {{
+                        if (typeof handler !== "function") {{
+                            throw new TypeError("event handler must be a function");
+                        }}
+                        const name = String(type);
+                        (this.__listeners[name] ||= []).push(handler);
+                    }}
+                }};
             }}
-        }};
-        globalThis.window = globalThis;
-        globalThis.event = {};
-        "##,
-        elements,
-        js_string(&initial.title),
-        event,
-    );
 
-    let mut context = Context::default();
-    context
-        .eval(Source::from_bytes(&prelude))
-        .map_err(script_error)?;
-    let result = context
-        .eval(Source::from_bytes(source))
-        .map_err(script_error)?;
-    context.run_jobs().map_err(script_error)?;
-
-    let result = result
-        .to_string(&mut context)
-        .map_err(script_error)?
-        .to_std_string_escaped();
-    let mut updated_elements = BTreeMap::new();
-    for id in initial.elements.keys() {
-        let key = js_string(id);
-        updated_elements.insert(
-            id.clone(),
-            ElementState {
-                text_content: evaluate_string(
-                    &mut context,
-                    &format!("String(document.__elements[{key}].textContent)"),
-                )?,
-                background: evaluate_string(
-                    &mut context,
-                    &format!("String(document.__elements[{key}].style.background || '')"),
-                )?,
-            },
+            const __ferrumElements = {{ {} }};
+            globalThis.document = {{
+                title: {},
+                readyState: "complete",
+                __elements: __ferrumElements,
+                querySelector(selector) {{
+                    return typeof selector === "string" && selector.startsWith("#")
+                        ? this.__elements[selector.slice(1)] || null
+                        : null;
+                }},
+                getElementById(id) {{
+                    return this.__elements[String(id)] || null;
+                }}
+            }};
+            globalThis.window = globalThis;
+            globalThis.event = null;
+            globalThis.__ferrumDispatch = function(type, targetId, path) {{
+                const target = __ferrumElements[targetId] || null;
+                if (!target) return;
+                const dispatchedEvent = {{
+                    type,
+                    target,
+                    currentTarget: null,
+                    bubbles: true,
+                    __stopped: false,
+                    stopPropagation() {{ this.__stopped = true; }}
+                }};
+                globalThis.event = dispatchedEvent;
+                try {{
+                    for (const id of path) {{
+                        const current = __ferrumElements[id];
+                        if (!current) continue;
+                        dispatchedEvent.currentTarget = current;
+                        const listeners = [...(current.__listeners[type] || [])];
+                        for (const listener of listeners) {{
+                            listener.call(current, dispatchedEvent);
+                        }}
+                        if (dispatchedEvent.__stopped) break;
+                    }}
+                }} finally {{
+                    dispatchedEvent.currentTarget = null;
+                    globalThis.event = null;
+                }}
+            }};
+            "##,
+            elements,
+            js_string(&initial.title),
         );
+
+        let mut context = Context::default();
+        context
+            .eval(Source::from_bytes(&prelude))
+            .map_err(script_error)?;
+        let result = context
+            .eval(Source::from_bytes(source))
+            .map_err(script_error)?;
+        context.run_jobs().map_err(script_error)?;
+        let initial_result = result
+            .to_string(&mut context)
+            .map_err(script_error)?
+            .to_std_string_escaped();
+
+        Ok(Self {
+            context,
+            element_ids: initial.elements.keys().cloned().collect(),
+            initial_result,
+        })
     }
-    Ok(ScriptOutcome {
-        page: PageState {
-            title: evaluate_string(&mut context, "String(document.title)")?,
-            elements: updated_elements,
-        },
-        result,
-    })
+
+    /// Dispatches to the target first and then each supplied ancestor.
+    pub fn dispatch_click(
+        &mut self,
+        target_id: &str,
+        propagation_path: &[String],
+    ) -> Result<(), ScriptError> {
+        let path = propagation_path
+            .iter()
+            .map(|id| js_string(id))
+            .collect::<Vec<_>>()
+            .join(",");
+        let dispatch = format!(
+            "__ferrumDispatch(\"click\", {}, [{}])",
+            js_string(target_id),
+            path
+        );
+        self.context
+            .eval(Source::from_bytes(&dispatch))
+            .map_err(script_error)?;
+        self.context.run_jobs().map_err(script_error)
+    }
+
+    pub fn outcome(&mut self) -> Result<ScriptOutcome, ScriptError> {
+        let mut elements = BTreeMap::new();
+        for id in &self.element_ids {
+            let key = js_string(id);
+            elements.insert(
+                id.clone(),
+                ElementState {
+                    text_content: evaluate_string(
+                        &mut self.context,
+                        &format!("String(document.__elements[{key}].textContent)"),
+                    )?,
+                    background: evaluate_string(
+                        &mut self.context,
+                        &format!("String(document.__elements[{key}].style.background || '')"),
+                    )?,
+                },
+            );
+        }
+        Ok(ScriptOutcome {
+            page: PageState {
+                title: evaluate_string(&mut self.context, "String(document.title)")?,
+                elements,
+            },
+            result: self.initial_result.clone(),
+        })
+    }
+}
+
+pub fn execute(source: &str, initial: PageState) -> Result<ScriptOutcome, ScriptError> {
+    ScriptRuntime::new(source, &initial)?.outcome()
 }
 
 fn evaluate_string(context: &mut Context, expression: &str) -> Result<String, ScriptError> {
@@ -182,21 +245,18 @@ mod tests {
     use super::*;
 
     fn page() -> PageState {
-        let mut elements = BTreeMap::new();
-        elements.insert(
-            "app".into(),
-            ElementState {
-                text_content: "Initial text".into(),
-                background: String::new(),
-            },
-        );
-        elements.insert(
-            "status".into(),
-            ElementState {
-                text_content: "Waiting".into(),
-                background: String::new(),
-            },
-        );
+        let elements = ["app", "status", "other"]
+            .into_iter()
+            .map(|id| {
+                (
+                    id.into(),
+                    ElementState {
+                        text_content: "Waiting".into(),
+                        background: String::new(),
+                    },
+                )
+            })
+            .collect();
         PageState {
             title: "Before".into(),
             elements,
@@ -211,7 +271,6 @@ mod tests {
                 const app = document.querySelector("#app");
                 app.textContent = "JavaScript rendered this";
                 app.style.background = "#224466";
-                document.getElementById("status").textContent = "Ready";
                 6 * 7;
             "##,
             page(),
@@ -225,28 +284,96 @@ mod tests {
             "JavaScript rendered this"
         );
         assert_eq!(outcome.page.elements["app"].background, "#224466");
-        assert_eq!(outcome.page.elements["status"].text_content, "Ready");
+    }
+
+    #[test]
+    fn listeners_and_closure_state_persist_between_clicks() {
+        let mut runtime = ScriptRuntime::new(
+            "let count = 0; const status = document.getElementById('status'); status.addEventListener('click', () => status.textContent = String(++count));",
+            &page(),
+        )
+        .expect("runtime should start");
+
+        runtime
+            .dispatch_click("status", &["status".into(), "app".into()])
+            .expect("first click should dispatch");
+        runtime
+            .dispatch_click("status", &["status".into(), "app".into()])
+            .expect("second click should dispatch");
+
+        assert_eq!(
+            runtime.outcome().unwrap().page.elements["status"].text_content,
+            "2"
+        );
+    }
+
+    #[test]
+    fn dispatches_to_target_then_bubbles_with_stable_event_target() {
+        let source = r#"
+            const status = document.getElementById('status');
+            const app = document.getElementById('app');
+            const other = document.getElementById('other');
+            status.addEventListener('click', event => {
+                other.textContent = event.target.id + ':' + event.currentTarget.id;
+            });
+            app.addEventListener('click', event => {
+                other.textContent += '>' + event.target.id + ':' + event.currentTarget.id;
+            });
+        "#;
+        let mut runtime = ScriptRuntime::new(source, &page()).expect("runtime should start");
+        runtime
+            .dispatch_click("status", &["status".into(), "app".into()])
+            .expect("click should bubble");
+
+        assert_eq!(
+            runtime.outcome().unwrap().page.elements["other"].text_content,
+            "status:status>status:app"
+        );
+    }
+
+    #[test]
+    fn does_not_dispatch_to_unrelated_elements() {
+        let mut runtime = ScriptRuntime::new(
+            "const status = document.getElementById('status'); const other = document.getElementById('other'); other.addEventListener('click', () => status.textContent = 'wrong');",
+            &page(),
+        )
+        .expect("runtime should start");
+        runtime
+            .dispatch_click("status", &["status".into(), "app".into()])
+            .expect("click should dispatch");
+        assert_eq!(
+            runtime.outcome().unwrap().page.elements["status"].text_content,
+            "Waiting"
+        );
+    }
+
+    #[test]
+    fn stop_propagation_prevents_ancestor_listeners() {
+        let source = r#"
+            const status = document.getElementById('status');
+            const app = document.getElementById('app');
+            const other = document.getElementById('other');
+            status.addEventListener('click', event => {
+                other.textContent = 'target';
+                event.stopPropagation();
+            });
+            app.addEventListener('click', () => other.textContent = 'parent');
+        "#;
+        let mut runtime = ScriptRuntime::new(source, &page()).expect("runtime should start");
+        runtime
+            .dispatch_click("status", &["status".into(), "app".into()])
+            .expect("click should dispatch");
+
+        assert_eq!(
+            runtime.outcome().unwrap().page.elements["other"].text_content,
+            "target"
+        );
     }
 
     #[test]
     fn reports_javascript_syntax_errors() {
         let error = execute("const = ;", page()).expect_err("invalid JavaScript should fail");
         assert!(error.to_string().contains("JavaScript error"));
-    }
-
-    #[test]
-    fn dispatches_a_click_event_to_javascript() {
-        let event = ScriptEvent {
-            event_type: "click".into(),
-            target_id: "status".into(),
-        };
-        let outcome = execute_with_event(
-            "if (event && event.target.id === 'status') { event.target.textContent = 'Clicked'; }",
-            page(),
-            Some(&event),
-        )
-        .expect("click handler should execute");
-        assert_eq!(outcome.page.elements["status"].text_content, "Clicked");
     }
 
     #[test]
