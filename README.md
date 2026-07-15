@@ -5,6 +5,9 @@ Ferrum is a small browser engine written in Rust to make the web platform easier
 > **Current milestone:** route native mouse clicks through layout hit testing to JavaScript and repaint the page.
 
 
+<img width="800" height="458" alt="ScreenRecording2026-07-15at05 46 31-ezgif com-video-to-gif-converter" src="https://github.com/user-attachments/assets/901b3da9-b726-4723-b7d5-dbe92bf2b91c" />
+
+
 ## Try it
 
 Ferrum currently requires a recent stable Rust toolchain.
@@ -43,6 +46,8 @@ Ferrum's parsers are intentionally learning-sized subsets, not yet conforming im
 The JavaScript runtime executes modern ECMAScript, but Ferrum's DOM bridge is intentionally small: scripts can read or update `document.title`, select any element with an ID, replace its `textContent`, set its background, and register click handlers with `addEventListener`. One Boa context remains alive for the window session, so variables, closures, listeners, and DOM-facing state persist across clicks. Clicks dispatch only along the ID-bearing target-to-root path; `event.target`, `event.currentTarget`, bubbling, and `stopPropagation()` are supported. Ferrum does not yet implement listener removal, default actions, most browser Web APIs, networking, or node creation.
 
 The `window` command resolves the first `<link rel="stylesheet">` and `<script src>` relative to the HTML file. Click a colored area in the included sample to see JavaScript change the page and window title. For debugging, the explicit form is also available: `ferrum window page.html page.css page.js`.
+
+
 
 ## Learning reference
 
